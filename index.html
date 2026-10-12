@@ -204,7 +204,9 @@ function aggregate(a){
   }).join('')}</tbody></table></div><p class="sub">任务/策略比＝计划执行次数 ÷ 策略数量；按当前筛选范围计算。</p></section>`;
 }
 function matrixFull(a){
-  const hours=Array.from({length:24},(_,h)=>String(h).padStart(2,'0'));
+  const taskHours=a.map(r=>Number(r.h)).filter(h=>Number.isInteger(h)&&h>=0&&h<=23);
+  const firstHour=taskHours.length?Math.min(...taskHours):0,lastHour=taskHours.length?Math.max(...taskHours):-1;
+  const hours=Array.from({length:lastHour-firstHour+1},(_,i)=>String(firstHour+i).padStart(2,'0'));
   const showTypes=types.filter(t=>a.some(r=>r.type===t)),allTasks=counts(a).total;
   const body=showTypes.map(t=>`<tr><th>${t}</th>${hours.map(h=>{
     const b=a.filter(r=>r.type===t&&r.h===h),p=counts(b),s=strategyCounts(b),sr=paired(b,'s','n'),cr=paired(b,'c','s');
@@ -220,10 +222,17 @@ function detail(a){
   html=html.replace('<section class="panel">','<section class="panel" id="detail-section">')
     .replace('<h3>策略批次明细</h3>','<h3>策略任务执行明细</h3>')
     .replace('<span class="sub">单位：条 · 每页 10 条</span>','<div class="detail-actions"><span class="sub">每页 10 条 · 导出当前筛选的全部明细</span><button type="button" data-export>导出 CSV</button></div>')
-    .replace('<th>批次</th>','<th>账龄</th><th>实际开始执行时间</th><th>执行总时长</th><th>实发率</th><th>回调率</th><th>批次</th>');
+    .replace('<th>计划时间</th>','<th>计划时间</th><th>实际开始执行时间</th><th>执行总时长</th>')
+    .replace('<th>批次</th>','<th>账龄</th><th>实发率</th><th>回调率</th><th>批次</th>');
+  html=html.replace(/<tr>[\s\S]*?<\/tr>/g,m=>{
+    const id=m.match(/data-detail="(\d+)"/);
+    if(!id)return m;
+    const r=rows[Number(id[1])];
+    return m.replace(/(<td>\d{2}:\d{2}<\/td>)/,`$1<td>${esc(r.startedAt||'—')}</td><td>${esc(r.duration||'—')}</td>`);
+  });
   return html.replace(/<td><button class="link" data-detail="(\d+)">/g,(m,id)=>{
     const r=rows[Number(id)];
-    return `<td>${r.age}</td><td>${esc(r.startedAt||'—')}</td><td>${esc(r.duration||'—')}</td><td>${rateLabel({v:rate(r.s,r.n),missing:0},'send')}</td><td>${rateLabel({v:rate(r.c,r.s),missing:0},'callback')}</td>${m}`;
+    return `<td>${r.age}</td><td>${rateLabel({v:rate(r.s,r.n),missing:0},'send')}</td><td>${rateLabel({v:rate(r.c,r.s),missing:0},'callback')}</td>${m}`;
   });
 }
 function rules(){return baseRules()+`<details><summary>账龄分类与率值口径</summary><div class="panel"><p>策略执行率＝所有到期计划均已执行的策略数 / 有到期计划的策略数；计划执行率＝到期已执行次数 / 应执行次数。任务/策略比＝计划执行次数 / 策略数量。</p><p>实发率＝实发 / 应发；回调率＝已回调 / 实发。每种率仅在分子分母均有值的同一批次集合内计算，缺失批次不补0。低于阈值的橙色或紫色标记、到期未执行的红色标记均为快照提示，不直接判定业务故障。</p><p>实际开始执行时间与执行总时长尚未包含在本次 CSV 中，明细和导出均显示“—”；后续补充数据后再按提供的字段展示。点击异常数量筛选到对应任务明细，导出范围为当前筛选的全部行。</p><p>账龄按名称推断，显式D天数优先，其次P/预提醒、A、B1、B2、M2以上。D1246含义未明确、D1-D30跨多个段、仅“逾期”或没有天数的名称，统一归其他。</p><div class="scroll"><table><thead><tr><th>策略 / ID</th><th>归类</th><th>依据</th></tr></thead><tbody>${unique(rows,r=>r.type+'|'+r.id).map(r=>`<tr><td class="name">${esc(r.name)} / ${r.id}</td><td>${r.age}</td><td>${r.why}</td></tr>`).join('')}</tbody></table></div></div></details>`}
@@ -235,7 +244,7 @@ function render(){
   content.innerHTML=`<div class="row"><h3>${state.page==='总览'?'当日全局概览':state.page+' · 类型监控'}</h3><span class="sub">${a.length} 条记录 · 日期 2026-10-10</span></div>${controls(base)}${moduleNav()}<div class="thresholds"><label>实发率提示阈值（%）<input id="send-threshold" type="number" min="0" max="100" step="0.01" value="${state.sendThreshold}"></label><label>回调率提示阈值（%）<input id="callback-threshold" type="number" min="0" max="100" step="0.01" value="${state.callbackThreshold}"></label><button data-threshold>应用阈值</button><span class="sub">默认按当前有效批次率的第10百分位设定：实发${defaultSendThreshold}%，回调${defaultCallbackThreshold}%；实发${sendSamples.length}批、回调${callbackSamples.length}批。仅为快照提示线。</span></div>${drill?`<p class="filter-note">已定位：${drill}任务 · ${a.length} 条 <button data-clear-drill>清除定位</button></p>`:''}${state.age||state.matrixType?`<p class="filter-note">地图筛选：${state.matrixType||'全部类型'} / ${state.age||'全部账龄'}${state.hour?' / '+state.hour+':00':''} <button data-clear-map>清除地图筛选</button></p>`:''}${summary(a)}${matrix(base,'age')}${aggregate(a)}${hourly(base)}${detail(a)}${selected()}${rules()}`;
 }
 function exportRows(a){
-  const columns=[['策略名称',r=>r.name],['策略ID',r=>r.id],['触达类型',r=>r.type],['账龄',r=>r.age],['计划时间',r=>r.time],['执行状态',r=>r.status],['实际开始执行时间',r=>r.startedAt],['执行总时长',r=>r.duration],['应发数量',r=>r.n],['实发数量',r=>r.s],['发送失败数量',r=>r.f],['已回调数量',r=>r.c],['待回调数量',r=>r.p],['实发率',r=>pct(rate(r.s,r.n))],['回调率',r=>pct(rate(r.c,r.s))],['执行批次',r=>r.batch]];
+  const columns=[['策略名称',r=>r.name],['策略ID',r=>r.id],['触达类型',r=>r.type],['账龄',r=>r.age],['计划时间',r=>r.time],['实际开始执行时间',r=>r.startedAt],['执行总时长',r=>r.duration],['执行状态',r=>r.status],['应发数量',r=>r.n],['实发数量',r=>r.s],['发送失败数量',r=>r.f],['已回调数量',r=>r.c],['待回调数量',r=>r.p],['实发率',r=>pct(rate(r.s,r.n))],['回调率',r=>pct(rate(r.c,r.s))],['执行批次',r=>r.batch]];
   const cell=v=>{const raw=String(v===null||v===undefined||v===''?'—':v),safe=/^[=+\-@\t\r]/.test(raw)?"'"+raw:raw;return '"'+safe.replace(/"/g,'""')+'"'};
   const lines=[columns.map(([name])=>cell(name)).join(','),...a.map(r=>columns.map(([,get])=>cell(get(r))).join(','))];
   const blob=new Blob(['\ufeff',lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');
