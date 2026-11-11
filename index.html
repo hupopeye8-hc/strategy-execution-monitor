@@ -24,8 +24,9 @@
 #strategy-monitor .dimension{padding:14px 0}#strategy-monitor .dimension .rate{font-size:32px}
 #strategy-monitor .dimension-counts{display:flex;flex-wrap:wrap;gap:12px 22px;margin:15px 0}
 #strategy-monitor .dimension-counts b{font-size:20px;margin-left:5px}
-#strategy-monitor .rate-overview{display:grid;grid-template-columns:1fr 1fr;gap:25px;margin:20px 0}
+#strategy-monitor .rate-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:clamp(8px,2vw,25px);margin:20px 0}
 #strategy-monitor .rate-overview strong{display:block;font-size:36px}
+#strategy-monitor .rate-overview .rate-counts{display:block;margin-top:4px;font-variant-numeric:tabular-nums}
 #strategy-monitor .quantity-grid strong{font-size:23px}
 #strategy-monitor .execution-low{color:#b72e38;font-weight:650}
 #strategy-monitor .send-low{color:#a15300;background:#fff1dc;border-radius:3px;padding:1px 3px;font-weight:650}
@@ -101,6 +102,7 @@
 @media(max-width:850px){#strategy-monitor .dimension-grid .dimension+.dimension{border-left:0;border-top:1px solid var(--line);padding-left:0}#strategy-monitor .dimension-counts{grid-template-columns:repeat(3,minmax(0,1fr))}#strategy-monitor .quantity-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:430px){#strategy-monitor .dimension-counts{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:850px){#strategy-monitor .dimension-grid{grid-template-columns:1fr}#strategy-monitor .rate-overview strong{font-size:28px}}
+@media(max-width:520px){#strategy-monitor .rate-overview{grid-template-columns:repeat(2,minmax(0,1fr))}#strategy-monitor .rate-overview .message-success-card{grid-column:1/-1}}
 @media(max-width:850px){body{padding:8px}#strategy-monitor .metrics,#strategy-monitor .quantity-grid,#strategy-monitor .steps{grid-template-columns:repeat(2,minmax(0,1fr))}#strategy-monitor .quantity-grid strong{font-size:24px}}
 #strategy-monitor .panel{scroll-margin-top:16px}
 #strategy-monitor .module-nav{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0 20px;padding:8px;border:1px solid #e3eaf4;border-radius:12px;background:#f7f9fd}
@@ -151,7 +153,14 @@ const root=document.getElementById('strategy-monitor'), content=document.getElem
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=v=>v===null||v===undefined||String(v).trim()===''?null:Number(v);
 const fmt=v=>v===null||v===undefined?'—':v.toLocaleString('zh-CN');
-const rows=raw.map((r,i)=>({i,country:countryOf(r),date:dateOf(r),type:r['触达类型'],id:r['策略ID'],name:r['策略名称'],time:r['计划时间'],h:r['计划时间'].slice(11,13),batch:r['执行批次'],due:num(r['应执行次数'])===1,done:num(r['已执行次数'])===1,n:num(r['应发数量']),s:num(r['实发数量']),f:num(r['发送失败数量']),c:num(r['已回调数量']),p:num(r['待回调数量']),startedAt:r['实际开始执行时间']||null,duration:r['执行总时长']??null}));
+const messageSuccessApplies=type=>!['IVR','RCS'].includes(String(type).trim().toUpperCase());
+function readMessageSuccess(r){
+  if(!messageSuccessApplies(r['触达类型'])||num(r['已执行次数'])!==1)return null;
+  const successful=num(r['回调发送成功数量']),callbacks=num(r['已回调数量']);
+  if(!Number.isSafeInteger(successful)||!Number.isSafeInteger(callbacks))return null;
+  return successful>=0&&successful<=callbacks?successful:null;
+}
+const rows=raw.map((r,i)=>({i,country:countryOf(r),date:dateOf(r),type:r['触达类型'],id:r['策略ID'],name:r['策略名称'],time:r['计划时间'],h:r['计划时间'].slice(11,13),batch:r['执行批次'],due:num(r['应执行次数'])===1,done:num(r['已执行次数'])===1,n:num(r['应发数量']),s:num(r['实发数量']),f:num(r['发送失败数量']),c:num(r['已回调数量']),p:num(r['待回调数量']),success:readMessageSuccess(r),startedAt:r['实际开始执行时间']||null,duration:r['执行总时长']??null}));
 rows.forEach(r=>r.status=r.done?'已执行':r.due?'应执行未执行':'待执行');
 const types=['Email','IVR','SMS','Viber','WABA','上行短信','RCS','LINE'].filter(t=>rows.some(r=>r.type===t));
 const fields=[['n','应发数量'],['s','实发数量'],['f','发送失败数量'],['c','已回调数量'],['p','待回调数量']];
@@ -173,7 +182,7 @@ function downstream(a){return `<section class="panel"><div class="row"><h3>关�
 function aggregate(a){return `<section class="panel"><h3>按类型汇总</h3><div class="scroll"><table id="type-table"><thead><tr><th>类型</th><th>计划</th><th>应执行</th><th>已执行</th><th>待执行</th><th>应执行未执行</th>${fields.map(([,n])=>`<th>${n}</th>`).join('')}</tr></thead><tbody>${types.map(t=>{const b=a.filter(r=>r.type===t),c=counts(b);return `<tr><td><button class="link" data-nav="${t}">${t} →</button></td><td>${c.total}</td><td>${c.due}</td><td>${c.done}</td><td>${c.pending}</td><td class="${c.late?'bad':''}">${c.late}</td>${fields.map(([k])=>`<td>${value(b,k)}</td>`).join('')}</tr>`}).join('')}</tbody></table></div></section>`}
 function hourly(a){const hours=[...new Set(a.map(r=>r.h))].sort(),max=Math.max(1,...hours.map(h=>counts(a.filter(r=>r.h===h)).total));return `<section class="panel"><div class="row"><h3>每小时执行情况</h3><span class="sub">按计划小时归属 · 点击筛选 · 右侧：已执行 / 计划</span></div><div class="legend"><span><i style="background:var(--ok)"></i>已执行</span><span><i style="background:var(--pending)"></i>待执行</span><span><i style="background:var(--bad)"></i>应执行未执行</span></div><div class="hours">${hours.map(h=>{const c=counts(a.filter(r=>r.h===h));return `<div class="hour"><button data-hour="${h}" aria-pressed="${state.hour===h}" aria-label="${h}时，计划${c.total}次，已执行${c.done}次，待执行${c.pending}次，应执行未执行${c.late}次">${h}:00</button><div class="bar" aria-hidden="true"><span style="width:${100*c.done/max}%;background:var(--ok)"></span><span style="width:${100*c.pending/max}%;background:var(--pending)"></span><span style="width:${100*c.late/max}%;background:var(--bad)"></span></div><span>${c.done} / ${c.total}${c.late?` · 未执行 ${c.late}`:''}</span></div>`}).join('')}</div></section>`}
 function baseDetail(a){const pages=Math.max(1,Math.ceil(a.length/10));state.pageNo=Math.min(state.pageNo,pages);const show=a.slice((state.pageNo-1)*10,state.pageNo*10);return `<section class="panel"><div class="row"><h3>策略批次明细</h3><span class="sub">单位：条 · 每页 10 条</span></div><div class="scroll"><table id="detail-table"><thead><tr><th>策略名称 / ID</th><th>类型</th><th>计划时间</th><th>执行状态</th>${fields.map(([,n])=>`<th>${n}</th>`).join('')}<th>批次</th></tr></thead><tbody>${show.map(r=>`<tr><td class="name">${esc(r.name)}<div class="sub">${esc(r.id)}</div></td><td>${esc(r.type)}</td><td>${r.time.slice(11,16)}</td><td class="${r.done?'ok':r.due?'bad':''}">${r.status}</td>${fields.map(([k])=>`<td class="${(k==='f'||k==='p')&&r[k]>0?'bad':''}">${fmt(r[k])}</td>`).join('')}<td><button class="link" data-detail="${r.i}">查看</button></td></tr>`).join('')}</tbody></table></div>${a.length?'':'<div class="empty">没有符合条件的策略</div>'}<div class="row pager"><span class="sub">共 ${a.length} 条 · 第 ${state.pageNo} / ${pages} 页</span><div><button data-prev ${state.pageNo===1?'disabled':''}>上一页</button> <button data-next ${state.pageNo===pages?'disabled':''}>下一页</button></div></div></section>`}
-function baseSelected(){const r=rows.find(r=>r.i===state.selected);if(!r)return '';const unknown=r.n!==null&&r.s!==null&&r.f!==null?r.n-r.s-r.f:null;return `<section class="panel" id="batch-trace"><div class="row"><h3>${esc(r.name)} · 批次追踪</h3><button data-close>收起</button></div><p class="sub">${esc(r.type)} · 策略 ${esc(r.id)} · 计划 ${esc(r.time.replace('T',' '))} · ${r.status}</p><div class="steps">${fields.map(([k,n])=>`<div class="step"><span class="sub">${n}</span><strong>${fmt(r[k])}</strong></div>`).join('')}</div><p class="mono">执行批次：${esc(r.batch||'未提供')}</p>${unknown>0?`<p class="bad">应发与实发＋失败相差 ${fmt(unknown)} 条；按 SQL 口径为空状态数量。</p>`:''}<p class="sub">${!r.done?'该计划未匹配到执行记录。':fields.some(([k])=>r[k]===null)?'部分数量未提供，不能解释为 0；仅凭本次导出无法判定具体缺失原因。':'以上均为附件中的批次汇总数量。'} 附件未提供逐消息回调明细和回调成功结果。</p></section>`}
+function baseSelected(){const r=rows.find(r=>r.i===state.selected);if(!r)return '';const unknown=r.n!==null&&r.s!==null&&r.f!==null?r.n-r.s-r.f:null;return `<section class="panel" id="batch-trace"><div class="row"><h3>${esc(r.name)} · 批次追踪</h3><button data-close>收起</button></div><p class="sub">${esc(r.type)} · 策略 ${esc(r.id)} · 计划 ${esc(r.time.replace('T',' '))} · ${r.status}</p><div class="steps">${fields.map(([k,n])=>`<div class="step"><span class="sub">${n}</span><strong>${fmt(r[k])}</strong></div>`).join('')}</div><p class="mono">执行批次：${esc(r.batch||'未提供')}</p>${unknown>0?`<p class="bad">应发与实发＋失败相差 ${fmt(unknown)} 条；按 SQL 口径为空状态数量。</p>`:''}<p class="sub">${!r.done?'该计划未匹配到执行记录。':fields.some(([k])=>r[k]===null)?'部分数量未提供，不能解释为 0；仅凭本次导出无法判定具体缺失原因。':'以上均为附件中的批次汇总数量。'}</p></section>`}
 function baseRules(){return `<details><summary>指标定义与数据范围</summary><div class="panel"><p>数据来源：策略执行明细数据 (89).xlsx，默认按北京时间当天展示一天，墨西哥按前一天；可手动选择日期。日期以页面顶部为准。应执行、已执行标记以附件快照为准，不随打开页面的时间变化；精确导出时刻未提供。</p><p>计划按国家＋类型＋策略ID＋计划时间去重，已执行表示存在执行记录。发送数量按国家＋类型＋执行批次去重，只合计已有执行记录的批次。单位为消息条数，不是债务人数。</p><p>应发为类型匹配的消息记录数；实发为 status 非空且不等于 2；失败为 status = 2。空状态不计入实发或失败。类型映射：SMS→sms、IVR→ivr、Email→email、WABA→whatsapp、Viber→viber、上行短信→uplink_sms。</p><p>IVR、Email 按 request_key 匹配各自结果表；SMS 按 supplier_no = 短信分片表 sms_request_id 匹配；WABA、Viber、上行短信按 supplier_no = 聊天表 message_id 匹配。已回调不等于成功送达。待回调直接使用导出值，不把空值补成 0。</p><p>部分合计只覆盖有值的批次，并标注缺失批次数；普通 SMS 的回调取自短信分片表；是否包含上行短信策略及回调数量以本次导出为准。待执行、未执行批次不参与下游汇总。当前仅显示附件已有数据，无债务人级、消息级或成功回调明细。</p><p>“应执行未执行”受 SQL 同分钟关联与入仓延迟影响，“待回调”也可能仍在等待，均不能仅凭快照认定业务故障。</p></div></details>`}
 function render(){nav();const base=state.page==='总览'?rows:rows.filter(r=>r.type===state.page),a=filtered(base),c=counts(a);content.innerHTML=`<div class="row"><h3>${state.page==='总览'?'当日全局概览':state.page+' · 类型监控'}</h3><span class="sub">${state.hour||state.q||state.status||state.issue?'当前筛选范围':'全天快照'} · ${a.length} 条记录</span></div>${controls(base)}${summary(a)}${c.late?`<div class="notice"><span>有 ${c.late} 次到期计划未匹配到执行记录</span><button data-alert>查看未执行计划</button></div>`:''}${downstream(a)}${state.page==='总览'?aggregate(a):''}${hourly(base)}${selected()}${detail(a)}${rules()}`;}
 const ages=['D-2~0','D1-7','D8-15','D16-30','D30+','其他'];
@@ -200,7 +209,31 @@ const eligibleBatches=batches(scopeRows()),sendSamples=eligibleBatches.map(r=>ra
 const defaultSendThreshold=tenthPercentile(sendSamples),defaultCallbackThreshold=tenthPercentile(callbackSamples);
 Object.assign(state,{age:'',matrixType:'',sendThreshold:defaultSendThreshold,callbackThreshold:defaultCallbackThreshold});
 const pct=v=>v===null?'—':v.toFixed(2)+'%';
-function paired(a,n,d){const b=batches(a),k=b.filter(r=>r[n]!==null&&r[d]!==null);return {v:rate(k.reduce((s,r)=>s+r[n],0),k.reduce((s,r)=>s+r[d],0)),missing:b.length-k.length,total:b.length}}
+function paired(a,n,d){
+  const executed=batches(a),known=executed.filter(r=>r[n]!==null&&r[d]!==null);
+  const numerator=known.reduce((sum,r)=>sum+r[n],0);
+  const denominator=known.reduce((sum,r)=>sum+r[d],0);
+  return {v:rate(numerator,denominator),numerator,denominator,missing:executed.length-known.length,total:executed.length};
+}
+function messageSuccessStats(a){
+  return paired(a.filter(r=>messageSuccessApplies(r.type)),'success','c');
+}
+function messageSuccessLabel(stats,showMissing=false){
+  const basis='成功 '+fmt(stats.numerator)+' / 已回调 '+fmt(stats.denominator);
+  const hint=stats.total===0?'当前范围没有适用的已执行批次'
+    :stats.total===stats.missing?'缺少有效成功结果':basis;
+  const missing=showMissing&&stats.missing?'<small class="missing">'+stats.missing+' 批缺少有效结果</small>':'';
+  return '<span class="rate message-success-rate" title="'+hint+'">'+pct(stats.v)+'</span>'+missing;
+}
+function rateOverview(a){
+  const success=messageSuccessStats(a);
+  return '<div class="rate-overview">'
+    +'<div><span class="sub">实发率</span><strong>'+rateLabel(paired(a,'s','n'),'send')+'</strong></div>'
+    +'<div><span class="sub">回调率</span><strong>'+rateLabel(paired(a,'c','s'),'callback')+'</strong></div>'
+    +'<div class="message-success-card"><span class="sub">消息发送成功率</span><strong>'+messageSuccessLabel(success,true)+'</strong>'
+    +(success.total>success.missing?'<small class="sub rate-counts">成功 '+fmt(success.numerator)+' / 已回调 '+fmt(success.denominator)+'</small>':'')
+    +'</div></div>';
+}
 function strategyCounts(a){const groups=new Map();plans(a).forEach(r=>{const k=JSON.stringify([r.country,r.type,r.id]);if(!groups.has(k))groups.set(k,[]);groups.get(k).push(r)});const all=[...groups.values()],due=all.filter(g=>g.some(r=>r.due));return {total:all.length,due:due.length,done:due.filter(g=>g.filter(r=>r.due).every(r=>r.done)).length,late:due.filter(g=>g.some(r=>r.due&&!r.done)).length,pending:all.filter(g=>!g.some(r=>r.due)).length}}
 function filtered(a){return a.filter(r=>(!state.hour||r.h===state.hour)&&(!state.age||r.age===state.age)&&(!state.matrixType||r.type===state.matrixType)&&(!state.q||(r.name+' '+r.id).toLowerCase().includes(state.q.toLowerCase()))&&(!state.status||r.status===state.status)&&issueMatches(r))}
 function rateLabel(x,kind){const low=x.v!==null&&x.v<(kind==='send'?state.sendThreshold:state.callbackThreshold);return `<span class="rate ${low?kind+'-low':''}">${pct(x.v)}</span>${x.missing?`<small class="missing">部分样本 · ${x.missing} 批未提供</small>`:''}`}
@@ -213,16 +246,16 @@ function summary(a){
   }).join('')}</div>${downstream(a)}</section>`;
 }
 function downstream(a){
-  return `<div class="downstream-block"><div class="row"><h4>发送与回调</h4><span class="sub">同一有效批次集合内，合计分子 / 合计分母</span></div><div class="rate-overview"><div><span class="sub">实发率</span><strong>${rateLabel(paired(a,'s','n'),'send')}</strong></div><div><span class="sub">回调率</span><strong>${rateLabel(paired(a,'c','s'),'callback')}</strong></div></div><div class="quantity-grid">${fields.map(([k,n])=>{
+  return `<div class="downstream-block"><div class="row"><h4>发送与回调</h4><span class="sub">同一有效批次集合内，合计分子 / 合计分母</span></div>${rateOverview(a)}<div class="quantity-grid">${fields.map(([k,n])=>{
     const actionable=k==='f'||k==='p',tag=actionable?'button':'div',attr=actionable?` type="button" data-jump-issue="${k==='f'?'failed':'pending'}" aria-label="查看${n}对应的策略任务明细"`:'';
     return `<${tag}${attr} class="quantity-card ${actionable?'jump-count':''}"><span class="sub">${n}</span><strong class="${actionable&&stat(a,k).v>0?'bad':''}">${value(a,k)}</strong>${actionable?'<small>查看明细 →</small>':''}</${tag}>`;
   }).join('')}</div><p class="sub">实发按 status ≠ 2 且非空统计；已回调仅表示有对应记录。空值保留为 —，不按 0 累加。</p></div>`;
 }
 function aggregate(a){
   const visibleTypes=state.page==='总览'?types:[state.page];
-  return `<section class="panel" id="type-section"><h3>策略任务执行汇总</h3><div class="scroll"><table id="type-table"><thead><tr><th rowspan="2">类型</th><th colspan="6">策略（个）</th><th colspan="6">计划任务（次）</th><th rowspan="2" title="计划执行次数 ÷ 策略数量">任务/策略比</th><th rowspan="2">实发率</th><th rowspan="2">回调率</th></tr><tr>${[1,2].map(()=>'<th>总数</th><th>应执行</th><th>到期完成</th><th>待执行</th><th>异常未执行</th><th>执行率</th>').join('')}</tr></thead><tbody>${visibleTypes.map(t=>{
+  return `<section class="panel" id="type-section"><h3>策略任务执行汇总</h3><div class="scroll"><table id="type-table"><thead><tr><th rowspan="2">类型</th><th colspan="6">策略（个）</th><th colspan="6">计划任务（次）</th><th rowspan="2" title="计划执行次数 ÷ 策略数量">任务/策略比</th><th rowspan="2">实发率</th><th rowspan="2">回调率</th><th rowspan="2">消息发送成功率</th></tr><tr>${[1,2].map(()=>'<th>总数</th><th>应执行</th><th>到期完成</th><th>待执行</th><th>异常未执行</th><th>执行率</th>').join('')}</tr></thead><tbody>${visibleTypes.map(t=>{
     const b=a.filter(r=>r.type===t),s=strategyCounts(b),p=counts(b);
-    return `<tr><td><button class="link" data-nav="${t}">${t} →</button></td>${[s,{...p,done:plans(b).filter(r=>r.due&&r.done).length}].map(c=>`<td>${c.total}</td><td>${c.due}</td><td>${c.done}</td><td>${c.pending}</td><td class="${c.late?'execution-low':''}">${c.late}</td><td class="${c.late?'execution-low':''}">${pct(rate(c.done,c.due))}</td>`).join('')}<td>${s.total?(p.total/s.total).toFixed(2):'—'}</td><td>${rateLabel(paired(b,'s','n'),'send')}</td><td>${rateLabel(paired(b,'c','s'),'callback')}</td></tr>`;
+    return `<tr><td><button class="link" data-nav="${t}">${t} →</button></td>${[s,{...p,done:plans(b).filter(r=>r.due&&r.done).length}].map(c=>`<td>${c.total}</td><td>${c.due}</td><td>${c.done}</td><td>${c.pending}</td><td class="${c.late?'execution-low':''}">${c.late}</td><td class="${c.late?'execution-low':''}">${pct(rate(c.done,c.due))}</td>`).join('')}<td>${s.total?(p.total/s.total).toFixed(2):'—'}</td><td>${rateLabel(paired(b,'s','n'),'send')}</td><td>${rateLabel(paired(b,'c','s'),'callback')}</td><td>${messageSuccessLabel(messageSuccessStats(b),true)}</td></tr>`;
   }).join('')}</tbody></table></div><p class="sub">任务/策略比＝计划执行次数 ÷ 策略数量；按当前筛选范围计算。</p></section>`;
 }
 function matrixFull(a){
@@ -233,7 +266,7 @@ function matrixFull(a){
   const body=showTypes.map(t=>`<tr><th>${t}</th>${hours.map(h=>{
     const b=a.filter(r=>r.type===t&&r.h===h),p=counts(b),s=strategyCounts(b),sr=paired(b,'s','n'),cr=paired(b,'c','s');
     if(!b.length)return '<td class="matrix-empty">—</td>';
-    return `<td><button class="matrix-cell ${p.late?'has-late':''}" data-cell-type="${t}" data-cell-hour="${h}" aria-label="${t} ${h}时，${s.total}个策略，${p.total}次计划，${p.late}次未执行"><b>${s.total} 策略 · ${p.total} 计划</b><span class="${p.late?'execution-low':''}">异常未执行 ${p.late} 次</span><span>执行率 <strong class="${p.late?'execution-low':''}">${pct(rate(plans(b).filter(r=>r.due&&r.done).length,p.due))}</strong></span><span>实发率 ${rateLabel(sr,'send')}</span><span>回调率 ${rateLabel(cr,'callback')}</span></button></td>`;
+    return `<td><button class="matrix-cell ${p.late?'has-late':''}" data-cell-type="${t}" data-cell-hour="${h}" aria-label="${t} ${h}时，${s.total}个策略，${p.total}次计划，${p.late}次未执行"><b>${s.total} 策略 · ${p.total} 计划</b><span class="${p.late?'execution-low':''}">异常未执行 ${p.late} 次</span><span>执行率 <strong class="${p.late?'execution-low':''}">${pct(rate(plans(b).filter(r=>r.due&&r.done).length,p.due))}</strong></span><span>实发率 ${rateLabel(sr,'send')}</span><span>回调率 ${rateLabel(cr,'callback')}</span>${messageSuccessApplies(t)?`<span>消息发送成功率 ${messageSuccessLabel(messageSuccessStats(b))}</span>`:''}</button></td>`;
   }).join('')}</tr>`).join('');
   const footer=hours.map(h=>{const n=counts(a.filter(r=>r.h===h)).total;return `<td><div class="hour-total"><b>${n}<small>次</small></b><span>全天占比 ${pct(rate(n,allTasks))}</span></div></td>`}).join('');
   return `<section class="panel" id="hour-section"><div class="row"><h3>小时级渠道运行矩阵</h3><span class="sub">类型 × 计划小时 · 点击单元格定位明细</span></div><div class="matrix-legend"><span class="execution-low">红：到期未执行</span><span class="send-low">橙：实发率低于 ${state.sendThreshold}%</span><span class="callback-low">紫：回调率低于 ${state.callbackThreshold}%</span><span class="sub">—：无任务或无分母；仅提示快照缺口</span></div><div class="scroll"><table class="matrix" id="hour-matrix"><thead><tr><th>类型 / 小时</th>${hours.map(h=>`<th>${h}:00</th>`).join('')}</tr></thead><tbody>${body}</tbody><tfoot><tr><th>${state.page==='总览'?'全渠道':'本类型'}合计<br><small>全天 ${allTasks} 次</small></th>${footer}</tr></tfoot></table></div><p class="sub">全天占比＝该小时计划任务数 ÷ 全天计划任务数；每个计划按类型、策略 ID、计划时间去重。</p></section>`;
@@ -246,7 +279,7 @@ function detail(a){
     .replace('<th>策略名称 / ID</th>','<th>国家</th><th>策略名称 / ID</th>')
     .replace('<span class="sub">单位：条 · 每页 10 条</span>','<div class="detail-actions"><span class="sub">每页 10 条 · 导出当前筛选的全部明细</span><button type="button" data-export>导出 CSV</button></div>')
     .replace('<th>计划时间</th>','<th>计划时间</th><th>实际开始执行时间</th><th>执行总时长</th>')
-    .replace('<th>批次</th>','<th>账龄</th><th>实发率</th><th>回调率</th><th>批次</th>');
+    .replace('<th>批次</th>','<th>账龄</th><th>实发率</th><th>回调率</th><th>回调发送成功数量</th><th>消息发送成功率</th><th>批次</th>');
   html=html.replace(/<tr>[\s\S]*?<\/tr>/g,m=>{
     const id=m.match(/data-detail="(\d+)"/);
     if(!id)return m;
@@ -255,10 +288,10 @@ function detail(a){
   });
   return html.replace(/<td><button class="link" data-detail="(\d+)">/g,(m,id)=>{
     const r=rows[Number(id)];
-    return `<td>${r.age}</td><td>${rateLabel({v:rate(r.s,r.n),missing:0},'send')}</td><td>${rateLabel({v:rate(r.c,r.s),missing:0},'callback')}</td>${m}`;
+    return `<td>${r.age}</td><td>${rateLabel({v:rate(r.s,r.n),missing:0},'send')}</td><td>${rateLabel({v:rate(r.c,r.s),missing:0},'callback')}</td><td>${fmt(r.success)}</td><td>${messageSuccessLabel(messageSuccessStats([r]))}</td>${m}`;
   });
 }
-function rules(){return baseRules()+`<details><summary>账龄分类与率值口径</summary><div class="panel"><p>策略执行率＝所有到期计划均已执行的策略数 / 有到期计划的策略数；计划执行率＝到期已执行次数 / 应执行次数。任务/策略比＝计划执行次数 / 策略数量。</p><p>实发率＝实发 / 应发；回调率＝已回调 / 实发。每种率仅在分子分母均有值的同一批次集合内计算，缺失批次不补0。低于阈值的橙色或紫色标记、到期未执行的红色标记均为快照提示，不直接判定业务故障。</p><p>实际开始执行时间取执行记录 create_at，执行总时长按数据源提供的秒数展示；未提供的值显示“—”。日期默认采用北京时间今日，墨西哥采用北京时间前一天；默认日期无数据时提示无数据，可手动选择已有日期；没有国家字段的旧菲律宾导出按菲律宾兼容。点击异常数量筛选到对应任务明细，导出范围为当前筛选的全部行。</p><p>账龄按名称推断，显式D天数优先，其次P/预提醒、A、B1、B2、M2以上。D1246含义未明确、D1-D30跨多个段、仅“逾期”或没有天数的名称，统一归其他。</p><div class="scroll"><table><thead><tr><th>策略 / ID</th><th>归类</th><th>依据</th></tr></thead><tbody>${unique(scopeRows(),r=>JSON.stringify([r.country,r.type,r.id])).map(r=>`<tr><td class="name">${esc(r.name)} / ${r.id}</td><td>${r.age}</td><td>${r.why}</td></tr>`).join('')}</tbody></table></div></div></details>`}
+function rules(){return baseRules()+`<details><summary>账龄分类与率值口径</summary><div class="panel"><p>策略执行率＝所有到期计划均已执行的策略数 / 有到期计划的策略数；计划执行率＝到期已执行次数 / 应执行次数。任务/策略比＝计划执行次数 / 策略数量。</p><p>实发率＝实发 / 应发；回调率＝已回调 / 实发。消息发送成功率＝回调发送成功数量 / 已回调数量。IVR、RCS 不参与该指标。未提供成功结果或已回调数量为 0 时，显示“—”。每种率仅在分子分母均有值的同一批次集合内计算，缺失批次不补0。低于阈值的橙色或紫色标记、到期未执行的红色标记均为快照提示，不直接判定业务故障。</p><p>实际开始执行时间取执行记录 create_at，执行总时长按数据源提供的秒数展示；未提供的值显示“—”。日期默认采用北京时间今日，墨西哥采用北京时间前一天；默认日期无数据时提示无数据，可手动选择已有日期；没有国家字段的旧菲律宾导出按菲律宾兼容。点击异常数量筛选到对应任务明细，导出范围为当前筛选的全部行。</p><p>账龄按名称推断，显式D天数优先，其次P/预提醒、A、B1、B2、M2以上。D1246含义未明确、D1-D30跨多个段、仅“逾期”或没有天数的名称，统一归其他。</p><div class="scroll"><table><thead><tr><th>策略 / ID</th><th>归类</th><th>依据</th></tr></thead><tbody>${unique(scopeRows(),r=>JSON.stringify([r.country,r.type,r.id])).map(r=>`<tr><td class="name">${esc(r.name)} / ${r.id}</td><td>${r.age}</td><td>${r.why}</td></tr>`).join('')}</tbody></table></div></div></details>`}
 function moduleNav(){return `<nav class="module-nav" aria-label="模块导航"><a href="#overview-section">策略执行概览</a><a href="#age-section">策略地图</a><a href="#type-section">策略任务执行汇总</a><a href="#hour-section">小时级渠道运行矩阵</a><a href="#detail-section">策略任务执行明细</a></nav>`}
 function durationLabel(v){return v===null||v===undefined||String(v).trim()===''?'—':Number.isFinite(Number(v))?fmt(Number(v))+' 秒':esc(v)}
 function countryControls(){
@@ -276,7 +309,7 @@ function render(){
   content.innerHTML=`<div class="row"><h3>${state.page==='总览'?'执行概览':state.page+' · 类型监控'}</h3><span class="sub">${a.length} 条记录 · ${state.date||'国家默认日期'}</span></div>${controls(base)}${moduleNav()}<div class="thresholds"><label>实发率提示阈值（%）<input id="send-threshold" type="number" min="0" max="100" step="0.01" value="${state.sendThreshold}"></label><label>回调率提示阈值（%）<input id="callback-threshold" type="number" min="0" max="100" step="0.01" value="${state.callbackThreshold}"></label><button data-threshold>应用阈值</button><span class="sub">默认按打开页面时默认日期的有效批次率第10百分位设定：实发${defaultSendThreshold}%，回调${defaultCallbackThreshold}%；实发${sendSamples.length}批、回调${callbackSamples.length}批。仅为快照提示线。</span></div>${drill?`<p class="filter-note">已定位：${drill}任务 · ${a.length} 条 <button data-clear-drill>清除定位</button></p>`:''}${state.age||state.matrixType?`<p class="filter-note">地图筛选：${state.matrixType||'全部类型'} / ${state.age||'全部账龄'}${state.hour?' / '+state.hour+':00':''} <button data-clear-map>清除地图筛选</button></p>`:''}${summary(a)}${matrix(base,'age')}${aggregate(a)}${hourly(base)}${detail(a)}${selected()}${rules()}`;
 }
 function exportRows(a){
-  const columns=[['国家',r=>r.country],['数据日期',r=>r.date],['策略名称',r=>r.name],['策略ID',r=>r.id],['触达类型',r=>r.type],['账龄',r=>r.age],['计划时间',r=>r.time],['实际开始执行时间',r=>r.startedAt],['执行总时长',r=>r.duration],['执行状态',r=>r.status],['应发数量',r=>r.n],['实发数量',r=>r.s],['发送失败数量',r=>r.f],['已回调数量',r=>r.c],['待回调数量',r=>r.p],['实发率',r=>pct(rate(r.s,r.n))],['回调率',r=>pct(rate(r.c,r.s))],['执行批次',r=>r.batch]];
+  const columns=[['国家',r=>r.country],['数据日期',r=>r.date],['策略名称',r=>r.name],['策略ID',r=>r.id],['触达类型',r=>r.type],['账龄',r=>r.age],['计划时间',r=>r.time],['实际开始执行时间',r=>r.startedAt],['执行总时长',r=>r.duration],['执行状态',r=>r.status],['应发数量',r=>r.n],['实发数量',r=>r.s],['发送失败数量',r=>r.f],['已回调数量',r=>r.c],['回调发送成功数量',r=>r.success],['待回调数量',r=>r.p],['实发率',r=>pct(rate(r.s,r.n))],['回调率',r=>pct(rate(r.c,r.s))],['消息发送成功率',r=>pct(messageSuccessStats([r]).v)],['执行批次',r=>r.batch]];
   const cell=v=>{const raw=String(v===null||v===undefined||v===''?'—':v),safe=/^[=+\-@\t\r]/.test(raw)?"'"+raw:raw;return '"'+safe.replace(/"/g,'""')+'"'};
   const lines=[columns.map(([name])=>cell(name)).join(','),...a.map(r=>columns.map(([,get])=>cell(get(r))).join(','))];
   const blob=new Blob(['\ufeff',lines.join('\r\n')],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');
@@ -303,7 +336,10 @@ root.addEventListener('click',e=>{
     Object.assign(state,{status:'',issue:'',pageNo:1});render();
   }else if(b.hasAttribute('data-reset')||b.dataset.nav){state.age='';state.matrixType='';if(b.hasAttribute('data-reset'))state.date=''}
 },true);
-function selected(){const html=baseSelected(),r=rows.find(x=>x.i===state.selected);if(!r)return html;return html.replace('<div class="steps">',`<div class="rate-overview"><div><span class="sub">实发率</span><strong>${rateLabel({v:rate(r.s,r.n),missing:0},'send')}</strong></div><div><span class="sub">回调率</span><strong>${rateLabel({v:rate(r.c,r.s),missing:0},'callback')}</strong></div></div><div class="steps">`)}
+function selected(){
+  const html=baseSelected(),r=rows.find(x=>x.i===state.selected);
+  return r?html.replace('<div class="steps">',rateOverview([r])+'<div class="steps">'):html;
+}
 function matrix(a,mode){
   if(mode!=='age')return matrixFull(a);
   const showTypes=types.filter(t=>a.some(r=>r.type===t));
